@@ -7,6 +7,7 @@ safely stays agentic, scoped down to that action's goal instead of the whole tas
 
 import json
 import re
+from collections.abc import Callable
 
 from browser_use.agent.action_cache import ActionCache, CachedAction, CachedElement
 
@@ -59,7 +60,13 @@ ARIA_ROLES = {
 # Ids that look framework-generated are regenerated on each render, so they are not stable identities.
 GENERATED_ID = re.compile(r"\d{3,}|[0-9a-f]{8,}|^:|^(ember|react|mui|radix)", re.IGNORECASE)
 
+# browser-use's system prompt has the agent close each evaluation with "Verdict: Success|Failure|Uncertain".
+UNSUCCESSFUL_VERDICT = re.compile(r"verdict:\s*(failure|uncertain)", re.IGNORECASE)
+
 FALLBACK_MAX_STEPS = 5
+
+# Narrows the rule-filtered actions further, e.g. by asking an LLM which ones the task needed.
+Pruner = Callable[[str, list[CachedAction]], list[CachedAction]]
 
 
 def _css_attribute(tag: str, attribute: str, value: str) -> str:
@@ -123,7 +130,10 @@ def replayable_actions(cache: ActionCache) -> list[CachedAction]:
     actions = [
         action
         for action in cache.actions
-        if action.error is None and action.name not in NON_REPLAYED_ACTIONS
+        if action.error is None
+        and action.name not in NON_REPLAYED_ACTIONS
+        # The agent judged the step ineffective and retried; replaying it would repeat the dead end.
+        and not (action.outcome and UNSUCCESSFUL_VERDICT.search(action.outcome))
     ]
     # The automation already opens its start url, so the agent navigating there first is redundant.
     if actions and actions[0].name == "navigate" and actions[0].params.get("url") == cache.start_url:
@@ -190,12 +200,16 @@ def compile_action(action: CachedAction, task: str) -> InteractionAction:
     return _agentic_fallback(action, task)
 
 
-def compile_automation(cache: ActionCache) -> Automation:
+def compile_automation(cache: ActionCache, prune: Pruner | None = None) -> Automation:
     if cache.start_url is None:
         raise ValueError("Action cache has no start url; the agent never observed a page")
 
+    actions = replayable_actions(cache)
+    if prune is not None and actions:
+        actions = prune(cache.task, actions)
+
     nodes: list[ActionNode] = []
-    for action in replayable_actions(cache):
+    for action in actions:
         interaction = compile_action(action, cache.task)
         previous = nodes[-1].interaction_action if nodes else None
         # Uncompilable actions from the same step share one goal, so one scoped agentic node covers them.

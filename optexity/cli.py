@@ -49,9 +49,10 @@ def compile_cache(args: argparse.Namespace) -> None:
     from browser_use.agent.action_cache import ActionCache
 
     from optexity.learning.compiler import automation_to_json, compile_automation
+    from optexity.learning.pruner import llm_prune
 
     cache = ActionCache.load(args.cache_path)
-    automation = compile_automation(cache)
+    automation = compile_automation(cache, prune=None if args.no_llm else llm_prune)
     with open(args.output, "w") as f:
         f.write(automation_to_json(automation))
     print(
@@ -100,6 +101,11 @@ def main() -> None:
     )
     compile_cmd.add_argument("cache_path", help="action_cache.json written by an agentic task")
     compile_cmd.add_argument("-o", "--output", default="test_automation_cached.json")
+    compile_cmd.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Skip the LLM pass that removes semantically redundant actions",
+    )
     compile_cmd.set_defaults(func=compile_cache)
 
     args = parser.parse_args()

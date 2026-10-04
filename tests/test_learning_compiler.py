@@ -26,7 +26,7 @@ def element(tag="input", attributes=None, x_path="html/body/form/input", text=No
     )
 
 
-def action(name, params=None, el=None, url=URL, goal="goal", error=None, is_done=False):
+def action(name, params=None, el=None, url=URL, goal="goal", error=None, is_done=False, outcome=None):
     return CachedAction(
         step_number=1,
         name=name,
@@ -34,6 +34,7 @@ def action(name, params=None, el=None, url=URL, goal="goal", error=None, is_done
         element=el,
         url=url,
         goal=goal,
+        outcome=outcome,
         error=error,
         is_done=is_done,
     )
@@ -102,6 +103,18 @@ class TestReplayableActions:
         final = action("input", {"text": "SF", "clear": True}, field)
         kept = replayable_actions(cache(action("input", {"text": "LA", "clear": True}, field), final))
         assert kept == [final]
+
+    def test_drops_steps_the_agent_judged_failed_or_uncertain(self):
+        logout = element(tag="a", ax_role="link", ax_name="Logout")
+        confirmed = action("click", el=logout, outcome="Logged out. Verdict: Success")
+        kept = replayable_actions(
+            cache(
+                action("click", el=logout, outcome="Still on the secure area. Verdict: Uncertain/Failure"),
+                action("navigate", {"url": f"{URL}/logout"}, outcome="Verdict: Failure"),
+                confirmed,
+            )
+        )
+        assert kept == [confirmed]
 
     def test_appending_write_keeps_earlier(self):
         field = element(attributes={"name": "city"})
