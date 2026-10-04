@@ -5,6 +5,7 @@ from browser_use import Agent, BrowserSession, Tools
 from optexity.inference.infra.browser import Browser
 from optexity.inference.models import normalize_model
 from optexity.inference.models.chat_litellm import build_agent_llm
+from optexity.learning.files import ACTION_CACHE_FILE
 from optexity.schema.actions.interaction_action import (
     AgenticTask,
     CloseOverlayPopupAction,
@@ -72,7 +73,7 @@ async def handle_agentic_task(
         history = await agent.run(max_steps=agentic_task_action.max_steps)
         logger.debug(f"Agentic task completed on browser_use {browser.cdp_url} ")
 
-        cache_path = step_directory / "action_cache.json"
+        cache_path = step_directory / ACTION_CACHE_FILE
         cache = agent.save_action_cache(cache_path)
         logger.info(
             f"Saved action cache ({len(cache.actions)} actions, {cache.llm_calls} LLM calls) to {cache_path}"
