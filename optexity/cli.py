@@ -52,7 +52,9 @@ def compile_cache(args: argparse.Namespace) -> None:
     from optexity.learning.pruner import llm_prune
 
     cache = ActionCache.load(args.cache_path)
-    automation = compile_automation(cache, prune=None if args.no_llm else llm_prune)
+    automation = compile_automation(
+        cache, prune=None if args.no_llm else llm_prune, parameterize=args.parameterize
+    )
     with open(args.output, "w") as f:
         f.write(automation_to_json(automation))
     print(
@@ -146,6 +148,11 @@ def main() -> None:
         "--no-llm",
         action="store_true",
         help="Skip the LLM pass that removes semantically redundant actions",
+    )
+    compile_cmd.add_argument(
+        "--parameterize",
+        action="store_true",
+        help="Turn typed values into input parameters that default to the recorded values",
     )
     compile_cmd.set_defaults(func=compile_cache)
 

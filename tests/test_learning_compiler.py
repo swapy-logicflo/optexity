@@ -138,6 +138,26 @@ class TestCompileAutomation:
         ]
         assert not any(node.interaction_action.agentic_task for node in automation.nodes)
 
+    def test_parameterize_lifts_typed_values_into_input_parameters(self):
+        automation = compile_automation(
+            cache(
+                action("input", {"text": "myname"}, element(attributes={"name": "04fullname"}, x_path="html/a")),
+                action("input", {"text": "tomsmith"}, element(attributes={"id": "username"}, x_path="html/b")),
+                action("input", {"text": "again"}, element(attributes={"name": "fullname"}, x_path="html/c")),
+            ),
+            parameterize=True,
+        )
+        assert automation.parameters.input_parameters == {
+            "fullname": ["myname"],
+            "username": ["tomsmith"],
+            "fullname_2": ["again"],
+        }
+        assert [n.interaction_action.input_text.input_text for n in automation.nodes] == [
+            "{fullname[0]}",
+            "{username[0]}",
+            "{fullname_2[0]}",
+        ]
+
     def test_output_json_validates_as_automation(self):
         automation = compile_automation(cache(action("input", {"text": "a"}, element(attributes={"name": "a"}))))
         assert Automation.model_validate_json(automation_to_json(automation)) == automation

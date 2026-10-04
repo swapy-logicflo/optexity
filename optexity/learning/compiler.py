@@ -200,7 +200,19 @@ def compile_action(action: CachedAction, task: str) -> InteractionAction:
     return _agentic_fallback(action, task)
 
 
-def compile_automation(cache: ActionCache, prune: Pruner | None = None) -> Automation:
+def parameter_name(element: CachedElement, taken: set[str]) -> str:
+    """Identifier for the value typed into this field, e.g. name=04fullname -> fullname."""
+    attributes = element.attributes
+    raw = attributes.get("name") or attributes.get("id") or element.ax_name or attributes.get("placeholder") or ""
+    base = re.sub(r"^[\d_]+", "", re.sub(r"\W+", "_", raw).strip("_").lower()) or "value"
+    name, suffix = base, 2
+    while name in taken:
+        name, suffix = f"{base}_{suffix}", suffix + 1
+    return name
+
+
+def compile_automation(cache: ActionCache, prune: Pruner | None = None, parameterize: bool = False) -> Automation:
+    """With parameterize, typed values become input parameters defaulting to the recorded values."""
     if cache.start_url is None:
         raise ValueError("Action cache has no start url; the agent never observed a page")
 
@@ -209,6 +221,7 @@ def compile_automation(cache: ActionCache, prune: Pruner | None = None) -> Autom
         actions = prune(cache.task, actions)
 
     nodes: list[ActionNode] = []
+    input_parameters: dict[str, list[str | int | float | bool]] = {}
     for action in actions:
         interaction = compile_action(action, cache.task)
         previous = nodes[-1].interaction_action if nodes else None
@@ -219,11 +232,15 @@ def compile_automation(cache: ActionCache, prune: Pruner | None = None) -> Autom
             and previous.agentic_task == interaction.agentic_task
         ):
             continue
+        if parameterize and interaction.input_text and action.element is not None:
+            name = parameter_name(action.element, set(input_parameters))
+            input_parameters[name] = [interaction.input_text.input_text]
+            interaction.input_text.input_text = f"{{{name}[0]}}"
         nodes.append(ActionNode(type="action_node", interaction_action=interaction))
 
     return Automation(
         url=cache.start_url,
-        parameters=Parameters(input_parameters={}, generated_parameters={}),
+        parameters=Parameters(input_parameters=input_parameters, generated_parameters={}),
         nodes=nodes,
     )
 
