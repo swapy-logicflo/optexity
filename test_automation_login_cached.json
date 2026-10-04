@@ -1,0 +1,56 @@
+{
+  "url": "https://the-internet.herokuapp.com/",
+  "parameters": {
+    "input_parameters": {},
+    "generated_parameters": {}
+  },
+  "nodes": [
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "click_element": {
+          "command": "get_by_role(\"link\", name=\"Form Authentication\", exact=True).first",
+          "prompt_instructions": "Click the link 'Form Authentication'"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "input_text": {
+          "command": "locator(\"input[id='username']\").first",
+          "prompt_instructions": "Enter text into the textbox 'Username'",
+          "input_text": "tomsmith"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "input_text": {
+          "command": "locator(\"input[id='password']\").first",
+          "prompt_instructions": "Enter text into the textbox 'Password'",
+          "input_text": "SuperSecretPassword!"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "click_element": {
+          "command": "get_by_role(\"button\", name=\"\\uf090 Login\", exact=True).first",
+          "prompt_instructions": "Click the button '\uf090 Login'"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "click_element": {
+          "command": "get_by_role(\"link\", name=\"Logout\", exact=True).first",
+          "prompt_instructions": "Click the link 'Logout'"
+        }
+      }
+    }
+  ]
+}
