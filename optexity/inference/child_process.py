@@ -581,6 +581,20 @@ async def task_processor():
                     )
                     logger.error(f"{automation_error} (task {task.task_id})")
             else:
+                from optexity.schema.automation import Automation
+
+                # Local override for iterating without DB access; path is relative to the server's cwd.
+                automation_path = os.getenv(
+                    "OPTEXITY_LOCAL_AUTOMATION", "test_automation.json"
+                )
+                with open(automation_path, "r") as f:
+                    automation = json.load(f)
+                    automation = Automation.model_validate(automation)
+                task.automation = automation
+                # Task validates its params against the automation's, so take them from the local file too.
+                task.input_parameters = automation.parameters.input_parameters
+                task.secure_parameters = automation.parameters.secure_parameters
+                task.unique_parameter_names = []
                 # opcloud fetches the fresh automation (and callback_url) from
                 # the DB right before allocating a recording task, so it must
                 # already be on the task.
