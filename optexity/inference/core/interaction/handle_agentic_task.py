@@ -72,6 +72,12 @@ async def handle_agentic_task(
         history = await agent.run(max_steps=agentic_task_action.max_steps)
         logger.debug(f"Agentic task completed on browser_use {browser.cdp_url} ")
 
+        cache_path = step_directory / "action_cache.json"
+        cache = agent.save_action_cache(cache_path)
+        logger.info(
+            f"Saved action cache ({len(cache.actions)} actions, {cache.llm_calls} LLM calls) to {cache_path}"
+        )
+
         agent.stop()
         if agent.browser_session:
             await agent.browser_session.stop()
