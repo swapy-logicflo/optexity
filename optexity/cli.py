@@ -45,6 +45,20 @@ def run_inference(args: argparse.Namespace) -> None:
     )
 
 
+def compile_cache(args: argparse.Namespace) -> None:
+    from browser_use.agent.action_cache import ActionCache
+
+    from optexity.learning.compiler import automation_to_json, compile_automation
+
+    cache = ActionCache.load(args.cache_path)
+    automation = compile_automation(cache)
+    with open(args.output, "w") as f:
+        f.write(automation_to_json(automation))
+    print(
+        f"Compiled {len(cache.actions)} cached actions into {len(automation.nodes)} nodes -> {args.output}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="optexity")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -75,6 +89,18 @@ def main() -> None:
     )
 
     inference_cmd.set_defaults(func=run_inference)
+
+    # ---------------------------
+    # compile-cache
+    # ---------------------------
+    compile_cmd = subparsers.add_parser(
+        "compile_cache",
+        help="Compile an agentic run's action cache into a deterministic automation",
+        aliases=["compile-cache"],
+    )
+    compile_cmd.add_argument("cache_path", help="action_cache.json written by an agentic task")
+    compile_cmd.add_argument("-o", "--output", default="test_automation_cached.json")
+    compile_cmd.set_defaults(func=compile_cache)
 
     args = parser.parse_args()
     args.func(args)
