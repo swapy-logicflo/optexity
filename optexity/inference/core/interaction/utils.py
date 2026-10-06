@@ -12,6 +12,8 @@ from typing import Any, Callable, Union
 import aiofiles
 import patchright.async_api
 import playwright.async_api
+from browser_use.agent.action_cache import CachedElement
+from browser_use.dom.views import DOMInteractedElement
 
 from optexity.exceptions import (
     ElementNotFoundInAxtreeException,
@@ -22,6 +24,7 @@ from optexity.inference.agents.index_prediction.action_prediction_locator_axtree
 )
 from optexity.inference.infra.browser import Browser
 from optexity.inference.models import get_llm_model_with_fallback
+from optexity.learning.files import PREDICTED_ELEMENT_FILE
 from optexity.schema.memory import BrowserState, Memory
 from optexity.schema.task import Task
 from optexity.utils.settings import settings
@@ -584,11 +587,35 @@ async def get_index_from_prompt(
                 command=prompt_instructions,
             )
 
+        _record_predicted_element(task, memory, browser_state_summary, response.index)
         return response.index
     except ElementNotFoundInAxtreeException as e:
         raise e
     except Exception as e:
         logger.error(f"Error in get_index_from_prompt: {e}")
+
+
+def _record_predicted_element(
+    task: Task, memory: Memory, browser_state_summary, index: int
+) -> None:
+    """Save the element the index predictor chose, so the learning loop can turn it into a locator."""
+    try:
+        node = browser_state_summary.dom_state.selector_map.get(index)
+        if node is None:
+            return
+        element = CachedElement.from_interacted(
+            DOMInteractedElement.load_from_enhanced_dom_tree(node)
+        )
+        step_directory = (
+            task.logs_directory / f"step_{memory.automation_state.step_index}"
+        )
+        step_directory.mkdir(parents=True, exist_ok=True)
+        (step_directory / PREDICTED_ELEMENT_FILE).write_text(
+            element.model_dump_json(indent=2)
+        )
+    except Exception as e:
+        # Best effort: losing this record only costs the loop a learning opportunity.
+        logger.warning(f"Could not record predicted element: {e}")
 
 
 def _snapshot_dir(directory: str) -> dict[str, float]:
