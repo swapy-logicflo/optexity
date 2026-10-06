@@ -58,7 +58,11 @@ ARIA_ROLES = {
 }
 
 # Ids that look framework-generated are regenerated on each render, so they are not stable identities.
-GENERATED_ID = re.compile(r"\d{3,}|[0-9a-f]{8,}|^:|^(ember|react|mui|radix)", re.IGNORECASE)
+# A digit run only counts against an id when it's set off by a separator or a known prefix (mui-48213,
+# ember1234, field_9931) — a bare "\d{3,}" would also reject real ids like "zip94105" or "order2024".
+GENERATED_ID = re.compile(
+    r"^(ember|react|mui|radix)[-_]?\d|^[0-9a-f]{8,}$|^:|[-_:]\d{3,}$", re.IGNORECASE
+)
 
 # browser-use's system prompt has the agent close each evaluation with "Verdict: Success|Failure|Uncertain".
 UNSUCCESSFUL_VERDICT = re.compile(r"verdict:\s*(failure|uncertain)", re.IGNORECASE)

@@ -61,6 +61,10 @@ class TestLocatorCommand:
         el = element(attributes={"id": "mui-48213", "name": "04fullname"})
         assert locator_command(el) == "locator(\"input[name='04fullname']\").first"
 
+    def test_keeps_a_hand_authored_id_that_merely_contains_digits(self):
+        el = element(attributes={"id": "zip94105", "name": "zip"})
+        assert locator_command(el) == "locator(\"input[id='zip94105']\").first"
+
     def test_role_and_accessible_name_for_links(self):
         el = element(tag="a", attributes={"href": "/download"}, ax_role="link", ax_name="File Download")
         assert locator_command(el) == 'get_by_role("link", name="File Download", exact=True).first'
