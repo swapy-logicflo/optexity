@@ -4,12 +4,15 @@ import json
 from browser_use.agent.action_cache import ActionCache, CachedAction, CachedElement
 
 from optexity.learning.compiler import (
+    ACTION_COMPILERS,
     automation_to_json,
+    compile_action,
     compile_automation,
     locator_command,
     replayable_actions,
 )
-from optexity.schema.automation import Automation
+from optexity.schema.actions.interaction_action import InteractionAction, HoverAction
+from optexity.schema.automation import ActionNode, Automation
 
 URL = "https://www.roboform.com/filling-test-all-fields"
 
@@ -90,6 +93,7 @@ class TestReplayableActions:
         kept = replayable_actions(
             cache(
                 action("scroll", {"down": True}),
+                action("wait", {"seconds": 3}),
                 action("input", {"text": "a"}, element(attributes={"name": "b"}), error="not found"),
                 fill,
                 action("done", {"text": "ok"}, is_done=True),
@@ -175,3 +179,36 @@ class TestCompileAutomation:
         )
         assert len(automation.nodes) == 1
         assert automation.nodes[0].interaction_action.agentic_task.task == "Upload the resume"
+
+
+class TestCompileAction:
+    def test_extract_becomes_an_extraction_node_with_the_agents_query(self):
+        node = compile_action(action("extract", {"query": "the price of NVDA", "extract_links": False}), "task")
+        assert node.interaction_action is None
+        assert node.extraction_action.llm.extraction_instructions == "the price of NVDA"
+        assert node.extraction_action.llm.extraction_format == {"result": "str"}
+
+    def test_extract_reads_the_nested_params_browser_use_actually_records(self):
+        recorded = {"params": {"query": "title and price of the first book", "extract_links": False, "start_from_char": 0}}
+        node = compile_action(action("extract", recorded), "task")
+        assert node.extraction_action.llm.extraction_instructions == "title and price of the first book"
+
+    def test_extraction_node_survives_json_round_trip(self):
+        automation = compile_automation(cache(action("extract", {"query": "the price"})))
+        assert Automation.model_validate_json(automation_to_json(automation)) == automation
+
+    def test_element_action_without_a_resolved_element_stays_agentic(self):
+        node = compile_action(action("click", el=None, goal="Click the Login button"), "task")
+        assert node.interaction_action.agentic_task.task == "Click the Login button"
+
+    def test_unsupported_key_stays_agentic(self):
+        node = compile_action(action("send_keys", {"keys": "Control+Shift+Nonsense"}, goal="Press the shortcut"), "task")
+        assert node.interaction_action.agentic_task.task == "Press the shortcut"
+
+    def test_new_action_types_plug_in_through_the_registry(self, monkeypatch):
+        def hover(cached):
+            return ActionNode(type="action_node", interaction_action=InteractionAction(hover=HoverAction(command='locator("#menu")')))
+
+        monkeypatch.setitem(ACTION_COMPILERS, "hover_menu", hover)
+        node = compile_action(action("hover_menu"), "task")
+        assert node.interaction_action.hover.command == 'locator("#menu")'

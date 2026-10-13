@@ -25,6 +25,7 @@ INSTRUCTIONS = """Replay starts on the first action's page in a fresh session an
 Keep exactly the actions the task needs. Remove:
 - retries and alternative attempts at something an earlier kept action already achieved
 - navigations or scripts the agent used only to check or recover its view of the page
+- extract actions the agent used only to check its own progress, unless the task asks for that data
 - anything after the task's goal was reached
 Never remove an action that enters data or triggers an effect the task asked for."""
 

@@ -1,8 +1,9 @@
 """Compile a browser-use action cache into a deterministic Optexity automation.
 
 The agentic run already resolved every element it touched, so each replayable action becomes a node
-with a Playwright locator command and needs no LLM on the next run. An action that can't be compiled
-safely stays agentic, scoped down to that action's goal instead of the whole task.
+that needs no LLM to find its target on the next run: a Playwright locator command for interactions,
+an extraction node for data the agent read off the page. An action with no registered compiler stays
+agentic, scoped down to that action's goal instead of the whole task.
 """
 
 import json
@@ -11,6 +12,7 @@ from collections.abc import Callable
 
 from browser_use.agent.action_cache import ActionCache, CachedAction, CachedElement
 
+from optexity.schema.actions.extraction_action import ExtractionAction, LLMExtraction
 from optexity.schema.actions.interaction_action import (
     AgenticTask,
     ClickElementAction,
@@ -25,12 +27,12 @@ from optexity.schema.actions.keyboard_keys import KEY_NAMES
 from optexity.schema.automation import ActionNode, Automation, Parameters
 
 # Actions that only serve the agent's own reasoning; replaying them changes nothing on the page.
-# Scrolling is included because Playwright scrolls an element into view before acting on it.
+# Scrolling and waiting are included because Playwright scrolls to an element and waits for it before
+# acting, and an agent's waits mostly pace its own LLM loop.
 NON_REPLAYED_ACTIONS = {
     "done",
     "scroll",
     "wait",
-    "extract",
     "screenshot",
     "find_text",
     "dropdown_options",
@@ -155,53 +157,122 @@ def replayable_actions(cache: ActionCache) -> list[CachedAction]:
     return kept
 
 
-def _agentic_fallback(action: CachedAction, task: str) -> InteractionAction:
-    return InteractionAction(
+# Compilers keyed by browser-use action name. A compiler returns None when this particular action
+# can't be made deterministic; compile_action then keeps it agentic. Element compilers run only when
+# the recorder resolved an element for the action.
+ActionCompiler = Callable[[CachedAction], ActionNode | None]
+ElementCompiler = Callable[[CachedAction, CachedElement], ActionNode]
+ACTION_COMPILERS: dict[str, ActionCompiler] = {}
+ELEMENT_COMPILERS: dict[str, ElementCompiler] = {}
+
+
+def compiles(name: str) -> Callable[[ActionCompiler], ActionCompiler]:
+    def register(compiler: ActionCompiler) -> ActionCompiler:
+        ACTION_COMPILERS[name] = compiler
+        return compiler
+
+    return register
+
+
+def compiles_on_element(name: str) -> Callable[[ElementCompiler], ElementCompiler]:
+    def register(compiler: ElementCompiler) -> ElementCompiler:
+        ELEMENT_COMPILERS[name] = compiler
+        return compiler
+
+    return register
+
+
+def _interaction_node(**action) -> ActionNode:
+    return ActionNode(type="action_node", interaction_action=InteractionAction(**action))
+
+
+@compiles("navigate")
+def _navigate(action: CachedAction) -> ActionNode:
+    params = action.params
+    return _interaction_node(
+        go_to_url=GoToUrlAction(url=params["url"], new_tab=params.get("new_tab", False))
+    )
+
+
+@compiles("go_back")
+def _go_back(action: CachedAction) -> ActionNode:
+    return _interaction_node(go_back=GoBackAction())
+
+
+@compiles("send_keys")
+def _send_keys(action: CachedAction) -> ActionNode | None:
+    keys = action.params.get("keys")
+    return _interaction_node(key_press=KeyPressAction(type=keys)) if keys in KEY_NAMES else None
+
+
+@compiles("extract")
+def _extract(action: CachedAction) -> ActionNode:
+    # browser-use registers extract without a param_model, so its params are recorded nested under
+    # "params"; accept the flat shape too in case that's fixed upstream.
+    params = action.params.get("params", action.params)
+    # The agent's query is free text with no schema, so the extracted data comes back as one string.
+    return ActionNode(
+        type="action_node",
+        extraction_action=ExtractionAction(
+            llm=LLMExtraction(
+                extraction_format={"result": "str"},
+                extraction_instructions=params["query"],
+            )
+        ),
+    )
+
+
+@compiles_on_element("input")
+def _input(action: CachedAction, element: CachedElement) -> ActionNode:
+    return _interaction_node(
+        input_text=InputTextAction(
+            command=locator_command(element),
+            prompt_instructions=f"Enter text into the {describe(element)}",
+            input_text=action.params["text"],
+        )
+    )
+
+
+@compiles_on_element("click")
+def _click(action: CachedAction, element: CachedElement) -> ActionNode:
+    return _interaction_node(
+        click_element=ClickElementAction(
+            command=locator_command(element),
+            prompt_instructions=f"Click the {describe(element)}",
+        )
+    )
+
+
+@compiles_on_element("select_dropdown")
+def _select(action: CachedAction, element: CachedElement) -> ActionNode:
+    option = action.params["text"]
+    return _interaction_node(
+        select_option=SelectOptionAction(
+            command=locator_command(element),
+            prompt_instructions=f"Select '{option}' in the {describe(element)}",
+            select_values=[option],
+        )
+    )
+
+
+def _agentic_fallback(action: CachedAction, task: str) -> ActionNode:
+    return _interaction_node(
         agentic_task=AgenticTask(task=action.goal or task, max_steps=FALLBACK_MAX_STEPS)
     )
 
 
-def compile_action(action: CachedAction, task: str) -> InteractionAction:
-    params = action.params
-    element = action.element
+def compile_action(action: CachedAction, task: str) -> ActionNode:
+    node = None
+    if action.name in ELEMENT_COMPILERS:
+        if action.element is not None:
+            node = ELEMENT_COMPILERS[action.name](action, action.element)
+    elif action.name in ACTION_COMPILERS:
+        node = ACTION_COMPILERS[action.name](action)
+    return node or _agentic_fallback(action, task)
 
-    if action.name == "navigate":
-        return InteractionAction(
-            go_to_url=GoToUrlAction(url=params["url"], new_tab=params.get("new_tab", False))
-        )
-    if action.name == "go_back":
-        return InteractionAction(go_back=GoBackAction())
-    if action.name == "send_keys" and params.get("keys") in KEY_NAMES:
-        return InteractionAction(key_press=KeyPressAction(type=params["keys"]))
 
-    if element is None:
-        return _agentic_fallback(action, task)
-
-    command = locator_command(element)
-    target = describe(element)
-    if action.name == "input":
-        return InteractionAction(
-            input_text=InputTextAction(
-                command=command,
-                prompt_instructions=f"Enter text into the {target}",
-                input_text=params["text"],
-            )
-        )
-    if action.name == "click":
-        return InteractionAction(
-            click_element=ClickElementAction(
-                command=command, prompt_instructions=f"Click the {target}"
-            )
-        )
-    if action.name == "select_dropdown":
-        return InteractionAction(
-            select_option=SelectOptionAction(
-                command=command,
-                prompt_instructions=f"Select '{params['text']}' in the {target}",
-                select_values=[params["text"]],
-            )
-        )
-    return _agentic_fallback(action, task)
+def _agentic_task(node: ActionNode) -> AgenticTask | None:
+    return node.interaction_action.agentic_task if node.interaction_action else None
 
 
 def parameter_name(element: CachedElement, taken: set[str]) -> str:
@@ -227,20 +298,17 @@ def compile_automation(cache: ActionCache, prune: Pruner | None = None, paramete
     nodes: list[ActionNode] = []
     input_parameters: dict[str, list[str | int | float | bool]] = {}
     for action in actions:
-        interaction = compile_action(action, cache.task)
-        previous = nodes[-1].interaction_action if nodes else None
+        node = compile_action(action, cache.task)
         # Uncompilable actions from the same step share one goal, so one scoped agentic node covers them.
-        if (
-            interaction.agentic_task
-            and previous is not None
-            and previous.agentic_task == interaction.agentic_task
-        ):
+        agentic = _agentic_task(node)
+        if agentic is not None and nodes and _agentic_task(nodes[-1]) == agentic:
             continue
-        if parameterize and interaction.input_text and action.element is not None:
+        input_text = node.interaction_action.input_text if node.interaction_action else None
+        if parameterize and input_text and action.element is not None:
             name = parameter_name(action.element, set(input_parameters))
-            input_parameters[name] = [interaction.input_text.input_text]
-            interaction.input_text.input_text = f"{{{name}[0]}}"
-        nodes.append(ActionNode(type="action_node", interaction_action=interaction))
+            input_parameters[name] = [input_text.input_text]
+            input_text.input_text = f"{{{name}[0]}}"
+        nodes.append(node)
 
     return Automation(
         url=cache.start_url,
