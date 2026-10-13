@@ -1,0 +1,49 @@
+{
+  "url": "https://www.roboform.com/filling-test-all-fields",
+  "parameters": {
+    "input_parameters": {},
+    "generated_parameters": {}
+  },
+  "nodes": [
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "input_text": {
+          "command": "locator(\"input[name='04fullname']\").first",
+          "prompt_instructions": "Enter text into the textbox '04fullname'",
+          "input_text": "myname"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "input_text": {
+          "command": "locator(\"input[name='10address1']\").first",
+          "prompt_instructions": "Enter text into the textbox '10address1'",
+          "input_text": "xyz"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "input_text": {
+          "command": "locator(\"input[name='11address2']\").first",
+          "prompt_instructions": "Enter text into the textbox '11address2'",
+          "input_text": "abc"
+        }
+      }
+    },
+    {
+      "type": "action_node",
+      "interaction_action": {
+        "input_text": {
+          "command": "locator(\"input[name='13adr_city']\").first",
+          "prompt_instructions": "Enter text into the textbox '13adr_city'",
+          "input_text": "SF"
+        }
+      }
+    }
+  ]
+}

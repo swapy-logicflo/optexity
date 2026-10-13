@@ -580,6 +580,20 @@ async def task_processor():
                         f"'{task.endpoint_name}': {marketplace_err}"
                     )
                     logger.error(f"{automation_error} (task {task.task_id})")
+            elif automation_path := os.getenv("OPTEXITY_LOCAL_AUTOMATION"):
+                # Local override for iterating without DB access; unset by default so this
+                # never silently substitutes a dev fixture for the real opcloud-provided automation.
+                from optexity.schema.automation import Automation
+
+                with open(automation_path, "r") as f:
+                    automation = json.load(f)
+                    automation = Automation.model_validate(automation)
+                task.automation = automation
+                # Task validates its params against the automation's, so take them from the local file too.
+                task.input_parameters = automation.parameters.input_parameters
+                task.secure_parameters = automation.parameters.secure_parameters
+                task.unique_parameter_names = []
+                fetch_success = True
             else:
                 # opcloud fetches the fresh automation (and callback_url) from
                 # the DB right before allocating a recording task, so it must
